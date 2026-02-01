@@ -1,0 +1,39 @@
+{
+    "title": "CheerioCrawler Template",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "dependenciesJson": {
+            "title": "Dependencies JSON",
+            "type": "object",
+            "description": "JSON object of dependencies with their versions.",
+            "editor": "json",
+            "prefill": {
+                "apify": "*"
+            }
+        },
+        "memoryConfigs": {
+            "title": "Memory Configurations (MB)",
+            "type": "array",
+            "description": "List of memory configurations (in MB) to test the startup latency with.",
+            "editor": "select",
+            "items": {
+                "type": "string",
+                "enum": ["128", "256", "512", "1024", "2048", "4096", "8192", "16384", "32768"]
+            },
+            "default": ["512"]
+        },
+        "bundleWithNcc": {
+            "title": "Bundle with ncc",
+            "description": "Whether to bundle the Actor source files using ncc.",
+            "type": "boolean",
+            "default": false
+        },
+        "iterationsPerConfig": {
+            "title": "Iterations per Configuration (for statistical significance)",
+            "type": "integer",
+            "description": "Number of times to run the Actor for each memory configuration to get an average startup latency.",
+            "default": 50
+        }
+    }
+}
