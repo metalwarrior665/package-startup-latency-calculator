@@ -11,12 +11,14 @@ interface Input {
     memoryConfigs: string[];
     bundleWithNcc: boolean;
     iterationsPerConfig: number;
+    // Mark which dependencies should be imported dynamically at runtime with await import()
+    dynamicDependencies?: string[];
 }
 
 await Actor.init();
 
 // Create a new Actor using packages and importing them at start to measure startup latency
-const { dependenciesJson, memoryConfigs, bundleWithNcc, iterationsPerConfig } = (await Actor.getInput<Input>())!;
+const { dependenciesJson, memoryConfigs, bundleWithNcc, iterationsPerConfig, dynamicDependencies } = (await Actor.getInput<Input>())!;
 
 const state = await Actor.useState<{ actorId?: string, versionNumber?: string, buildNumber?: string }>()
 
@@ -58,9 +60,14 @@ if (!state.versionNumber) {
 
     fileMap['package.json'] = JSON.stringify(packageJson, null, 2);
 
-    fileMap['src/main.ts'] = `${Object.keys(dependenciesJson).map((pkg) => `import '${pkg}';`).join('\n')
+    fileMap['src/main.ts'] = `${Object.keys(dependenciesJson).filter((pkg) => !dynamicDependencies?.includes(pkg)).map((pkg) => `import '${pkg}';`).join('\n')
          }\n` + `import { performance } from "perf_hooks";\n`
-        + `console.log("startup:", performance.now());`
+        + `console.log("startup:", performance.now());\n`
+    
+    if (dynamicDependencies && dynamicDependencies.length > 0) {
+        fileMap['src/main.ts'] += `${dynamicDependencies.map((pkg) => `await import('${pkg}');`).join('\n    ')};\n`;
+        fileMap['src/main.ts'] += `console.log("dynamic imports done:", performance.now());\n`;
+    }
 
     const sourceFiles = Object.entries(fileMap).map(([path, content]) => ({ name: path, content, format: 'TEXT' as const }));
 
@@ -111,6 +118,7 @@ for (const memoryMbs of memoryConfigs) {
     const runs = Object.values(runsRecord);
 
     const startupTimes: number[] = [];
+    const dynamicImportTimes: number[] = [];
     for (const run of runs) {
         const runLog = await Actor.apifyClient.run(run.id).log().get()
         const startupLog = runLog?.split('\n').find((line) => line.includes('startup:'));
@@ -118,6 +126,14 @@ for (const memoryMbs of memoryConfigs) {
         const match = startupLog.match(/startup:\s*(\d+(\.\d+)?)/);
         if (!match) throw new Error(`Startup time not found in log line: ${startupLog}`);
         startupTimes.push(Number(match[1]));
+
+        const dynamicImportLog = runLog?.split('\n').find((line) => line.includes('dynamic imports done:'));
+        if (dynamicImportLog) {
+            const dynamicMatch = dynamicImportLog.match(/dynamic imports done:\s*(\d+(\.\d+)?)/);
+            if (dynamicMatch) {
+                dynamicImportTimes.push(Number(dynamicMatch[1]));
+            }
+        }
     }
 
     const mean = startupTimes.reduce((a, b) => a + b, 0) / startupTimes.length;
@@ -130,6 +146,21 @@ for (const memoryMbs of memoryConfigs) {
 
     log.info(`Startup latency for memory ${memoryMbs} MB: Mean=${mean.toFixed(2)} ms, Median=${median.toFixed(2)} ms, Min=${min.toFixed(2)} ms, Max=${max.toFixed(2)} ms`);
 
+    const dynamicImportBreakdown: Record<string, number> = {};
+
+    // Include dynamic import times if applicable
+    if (dynamicImportTimes.length > 0) {
+        dynamicImportBreakdown.dynMean = dynamicImportTimes.reduce((a, b) => a + b, 0) / dynamicImportTimes.length;
+        const dynSorted = dynamicImportTimes.slice().sort((a, b) => a - b);
+        dynamicImportBreakdown.dynMedian = dynSorted.length % 2 === 0
+            ? (dynSorted[dynSorted.length / 2 - 1] + dynSorted[dynSorted.length / 2]) / 2
+            : dynSorted[Math.floor(dynSorted.length / 2)];
+        dynamicImportBreakdown.dynMin = Math.min(...dynamicImportTimes);
+        dynamicImportBreakdown.dynMax = Math.max(...dynamicImportTimes);
+
+        log.info(`Dynamic import time for memory ${memoryMbs} MB: Mean=${dynamicImportBreakdown.dynMean.toFixed(2)} ms, Median=${dynamicImportBreakdown.dynMedian.toFixed(2)} ms, Min=${dynamicImportBreakdown.dynMin.toFixed(2)} ms, Max=${dynamicImportBreakdown.dynMax.toFixed(2)} ms`);
+    }
+
     await Actor.pushData({
         median,
         mean,
@@ -139,6 +170,7 @@ for (const memoryMbs of memoryConfigs) {
         iterations: iterationsPerConfig,
         allStartupTimes: startupTimes,
         dependenciesJson,
+        ...dynamicImportBreakdown,
     })
 }
 

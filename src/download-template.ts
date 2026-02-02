@@ -27,11 +27,11 @@ export async function downloadZipTemplate(zipUrl: string) : Promise<Record<strin
           return;
         }
 
-        zipfile.openReadStream(entry, (err: any, stream: any) => {
+        zipfile.openReadStream(entry, (err, stream) => {
           if (err) return reject(err);
 
           const chunks: Buffer[] = [];
-          stream.on("data", (c) => chunks.push(c));
+          stream.on("data", (c: Buffer) => chunks.push(c));
           stream.on("end", () => {
             const content = Buffer.concat(chunks).toString("utf8");
 
