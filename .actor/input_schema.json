@@ -39,7 +39,7 @@
             "title": "Dynamic Dependencies (get separate measurements)",
             "type": "array",
             "description": "List of dependencies to dynamically import during Actor startup to measure their impact on startup latency.",
-            "editor": "select",
+            "editor": "stringList",
             "items": {
                 "type": "string"
             },
